@@ -33,6 +33,7 @@
       transition: border-color 0.2s;
     }
     .upload-area:hover { border-color: #666; }
+    .upload-area.dragover { border-color: #333; background: #fafafa; }
     .upload-area input[type="file"] { display: none; }
     .upload-btn {
       background: #333;
@@ -45,28 +46,29 @@
     }
     .upload-btn:hover { background: #555; }
 
-    /* 进度条样式 */
-    .progress-container {
+    /* 上传进度 */
+    .upload-progress {
       margin-top: 20px;
       display: none;
     }
-    .progress-bar {
+    .upload-progress.show { display: block; }
+    .progress-info {
+      font-size: 14px;
+      color: #666;
+      margin-bottom: 8px;
+    }
+    .progress-bar-bg {
       width: 100%;
       height: 8px;
       background: #eee;
       border-radius: 4px;
       overflow: hidden;
     }
-    .progress-fill {
+    .progress-bar {
       height: 100%;
       background: #333;
       width: 0%;
-      transition: width 0.2s;
-    }
-    .progress-text {
-      margin-top: 8px;
-      font-size: 13px;
-      color: #666;
+      transition: width 0.1s;
     }
 
     .font-list {
@@ -76,7 +78,7 @@
       box-shadow: 0 2px 8px rgba(0,0,0,0.08);
     }
     .font-item {
-      padding: 20px;
+      padding: 16px 20px;
       border-bottom: 1px solid #eee;
     }
     .font-item:last-child { border-bottom: none; }
@@ -107,15 +109,14 @@
     .btn-delete { background: #fbe8e8; color: #c53030; }
     .btn:hover { opacity: 0.8; }
 
-    /* 预览样式 */
+    /* 字体预览 */
     .font-preview {
-      padding: 16px;
-      background: #fafafa;
-      border-radius: 8px;
-      font-size: 24px;
-      line-height: 1.6;
+      padding: 12px 16px;
+      background: #f9f9f9;
+      border-radius: 6px;
+      font-size: 16px;
       color: #333;
-      word-break: break-all;
+      line-height: 1.6;
     }
 
     .empty {
@@ -133,6 +134,7 @@
       padding: 12px 24px;
       border-radius: 6px;
       display: none;
+      z-index: 1000;
     }
     .toast.show { display: block; }
   </style>
@@ -141,17 +143,17 @@
   <div class="container">
     <h1>字体托管服务</h1>
 
-    <div class="upload-area" onclick="document.getElementById('fileInput').click()">
+    <div class="upload-area" id="uploadArea">
       <p style="margin-bottom: 15px; color: #666;">点击或拖拽上传字体文件</p>
       <p style="font-size: 13px; color: #999; margin-bottom: 20px;">支持 .ttf .otf .woff .woff2</p>
-      <button class="upload-btn">选择文件</button>
+      <button class="upload-btn" onclick="document.getElementById('fileInput').click()">选择文件</button>
       <input type="file" id="fileInput" accept=".ttf,.otf,.woff,.woff2" multiple>
 
-      <div class="progress-container" id="progressContainer">
-        <div class="progress-bar">
-          <div class="progress-fill" id="progressFill"></div>
+      <div class="upload-progress" id="uploadProgress">
+        <div class="progress-info" id="progressInfo">上传中...</div>
+        <div class="progress-bar-bg">
+          <div class="progress-bar" id="progressBar"></div>
         </div>
-        <div class="progress-text" id="progressText">上传中... 0%</div>
       </div>
     </div>
 
@@ -165,7 +167,7 @@
   <script>
     const API_BASE = '';
     const PREVIEW_TEXT = '你好 123 Hello オハよ 안녕하세요';
-    let fontCounter = 0;
+    let fontCounter = 0; // 用于生成唯一的font-family名称
 
     // 显示提示
     function showToast(msg) {
@@ -193,32 +195,30 @@
         return;
       }
 
-      list.innerHTML = fonts.map((f, index) => {
-        const fontFamilyName = `preview-font-${index}`;
+      list.innerHTML = fonts.map(f => {
+        const fontId = 'font-' + (++fontCounter);
         const fullUrl = window.location.origin + f.url;
 
         return `
-          <style>
-            @font-face {
-              font-family: '${fontFamilyName}';
-              src: url('${fullUrl}');
-              font-display: swap;
-            }
-          </style>
           <div class="font-item">
+            <style>
+              @font-face {
+                font-family: '${fontId}';
+                src: url('${f.url}') format('truetype');
+                font-display: swap;
+              }
+            </style>
             <div class="font-header">
               <div class="font-info">
                 <div class="font-name">${f.name}</div>
                 <div class="font-size">${formatSize(f.size)}</div>
               </div>
               <div class="font-actions">
-                <button class="btn btn-copy" onclick="copyLink('${f.url}')">复制链接</button>
+                <button class="btn btn-copy" onclick="copyLink('${fullUrl}')">复制链接</button>
                 <button class="btn btn-delete" onclick="deleteFont('${encodeURIComponent(f.name)}')">删除</button>
               </div>
             </div>
-            <div class="font-preview" style="font-family: '${fontFamilyName}', sans-serif;">
-              ${PREVIEW_TEXT}
-            </div>
+            <div class="font-preview" style="font-family: '${fontId}', sans-serif;">${PREVIEW_TEXT}</div>
           </div>
         `;
       }).join('');
@@ -226,8 +226,7 @@
 
     // 复制链接
     function copyLink(url) {
-      const fullUrl = window.location.origin + url;
-      navigator.clipboard.writeText(fullUrl).then(() => {
+      navigator.clipboard.writeText(url).then(() => {
         showToast('链接已复制');
       });
     }
@@ -240,52 +239,92 @@
       loadFonts();
     }
 
-    // 上传处理（带进度）
-    document.getElementById('fileInput').addEventListener('change', async (e) => {
-      const files = e.target.files;
-      if (files.length === 0) return;
-
-      const progressContainer = document.getElementById('progressContainer');
-      const progressFill = document.getElementById('progressFill');
-      const progressText = document.getElementById('progressText');
-
-      progressContainer.style.display = 'block';
-
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
+    // 上传文件（带进度）
+    function uploadFile(file) {
+      return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
         const formData = new FormData();
         formData.append('font', file);
 
-        await new Promise((resolve) => {
-          const xhr = new XMLHttpRequest();
-
-          xhr.upload.addEventListener('progress', (event) => {
-            if (event.lengthComputable) {
-              const percent = Math.round((event.loaded / event.total) * 100);
-              progressFill.style.width = percent + '%';
-              progressText.textContent = `上传中 (${i + 1}/${files.length}): ${file.name} - ${percent}%`;
-            }
-          });
-
-          xhr.addEventListener('load', () => {
-            resolve();
-          });
-
-          xhr.addEventListener('error', () => {
-            showToast('上传失败: ' + file.name);
-            resolve();
-          });
-
-          xhr.open('POST', API_BASE + '/api/upload');
-          xhr.send(formData);
+        xhr.upload.addEventListener('progress', (e) => {
+          if (e.lengthComputable) {
+            const percent = Math.round((e.loaded / e.total) * 100);
+            document.getElementById('progressBar').style.width = percent + '%';
+          }
         });
+
+        xhr.addEventListener('load', () => {
+          if (xhr.status === 200) {
+            resolve(JSON.parse(xhr.responseText));
+          } else {
+            reject(new Error('上传失败'));
+          }
+        });
+
+        xhr.addEventListener('error', () => reject(new Error('网络错误')));
+
+        xhr.open('POST', API_BASE + '/api/upload');
+        xhr.send(formData);
+      });
+    }
+
+    // 处理多文件上传
+    async function handleUpload(files) {
+      if (files.length === 0) return;
+
+      const progressDiv = document.getElementById('uploadProgress');
+      const progressInfo = document.getElementById('progressInfo');
+      const progressBar = document.getElementById('progressBar');
+
+      progressDiv.classList.add('show');
+
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        progressInfo.textContent = `上传中 (${i + 1}/${files.length}): ${file.name}`;
+        progressBar.style.width = '0%';
+
+        try {
+          await uploadFile(file);
+        } catch (err) {
+          showToast(`${file.name} 上传失败`);
+        }
       }
 
-      progressContainer.style.display = 'none';
-      progressFill.style.width = '0%';
+      progressDiv.classList.remove('show');
+      progressBar.style.width = '0%';
       showToast('上传完成');
       loadFonts();
+    }
+
+    // 文件选择
+    document.getElementById('fileInput').addEventListener('change', (e) => {
+      handleUpload(e.target.files);
       e.target.value = '';
+    });
+
+    // 拖拽上传
+    const uploadArea = document.getElementById('uploadArea');
+
+    uploadArea.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      uploadArea.classList.add('dragover');
+    });
+
+    uploadArea.addEventListener('dragleave', () => {
+      uploadArea.classList.remove('dragover');
+    });
+
+    uploadArea.addEventListener('drop', (e) => {
+      e.preventDefault();
+      uploadArea.classList.remove('dragover');
+      const files = Array.from(e.dataTransfer.files).filter(f =>
+        ['.ttf', '.otf', '.woff', '.woff2'].some(ext => f.name.toLowerCase().endsWith(ext))
+      );
+      if (files.length > 0) {
+        handleUpload(files);
+      } else {
+        showToast('请上传字体文件');
+      }
     });
 
     // 初始加载
