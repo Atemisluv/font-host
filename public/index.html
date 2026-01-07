@@ -1,0 +1,197 @@
+<html>
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>字体托管</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f5f5f5;
+      min-height: 100vh;
+      padding: 40px 20px;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    h1 {
+      text-align: center;
+      color: #333;
+      margin-bottom: 30px;
+      font-weight: 500;
+    }
+    .upload-area {
+      background: white;
+      border: 2px dashed #ddd;
+      border-radius: 12px;
+      padding: 40px;
+      text-align: center;
+      margin-bottom: 30px;
+      transition: border-color 0.2s;
+    }
+    .upload-area:hover { border-color: #666; }
+    .upload-area input[type="file"] { display: none; }
+    .upload-btn {
+      background: #333;
+      color: white;
+      padding: 12px 30px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 15px;
+    }
+    .upload-btn:hover { background: #555; }
+    .font-list {
+      background: white;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    .font-item {
+      display: flex;
+      align-items: center;
+      padding: 16px 20px;
+      border-bottom: 1px solid #eee;
+    }
+    .font-item:last-child { border-bottom: none; }
+    .font-info { flex: 1; }
+    .font-name {
+      font-weight: 500;
+      color: #333;
+      margin-bottom: 4px;
+    }
+    .font-size {
+      font-size: 13px;
+      color: #999;
+    }
+    .font-actions { display: flex; gap: 10px; }
+    .btn {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .btn-copy { background: #e8f4e8; color: #2d7d2d; }
+    .btn-delete { background: #fbe8e8; color: #c53030; }
+    .btn:hover { opacity: 0.8; }
+    .empty {
+      text-align: center;
+      padding: 60px 20px;
+      color: #999;
+    }
+    .toast {
+      position: fixed;
+      bottom: 30px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #333;
+      color: white;
+      padding: 12px 24px;
+      border-radius: 6px;
+      display: none;
+    }
+    .toast.show { display: block; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>字体托管服务</h1>
+
+    <div class="upload-area" onclick="document.getElementById('fileInput').click()">
+      <p style="margin-bottom: 15px; color: #666;">点击或拖拽上传字体文件</p>
+      <p style="font-size: 13px; color: #999; margin-bottom: 20px;">支持 .ttf .otf .woff .woff2</p>
+      <button class="upload-btn">选择文件</button>
+      <input type="file" id="fileInput" accept=".ttf,.otf,.woff,.woff2" multiple>
+    </div>
+
+    <div class="font-list" id="fontList">
+      <div class="empty">暂无字体</div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const API_BASE = '';
+
+    // 显示提示
+    function showToast(msg) {
+      const toast = document.getElementById('toast');
+      toast.textContent = msg;
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 2000);
+    }
+
+    // 格式化文件大小
+    function formatSize(bytes) {
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+
+    // 加载字体列表
+    async function loadFonts() {
+      const res = await fetch(API_BASE + '/api/fonts');
+      const fonts = await res.json();
+      const list = document.getElementById('fontList');
+
+      if (fonts.length === 0) {
+        list.innerHTML = '<div class="empty">暂无字体</div>';
+        return;
+      }
+
+      list.innerHTML = fonts.map(f => `
+        <div class="font-item">
+          <div class="font-info">
+            <div class="font-name">${f.name}</div>
+            <div class="font-size">${formatSize(f.size)}</div>
+          </div>
+          <div class="font-actions">
+            <button class="btn btn-copy" onclick="copyLink('${f.url}')">复制链接</button>
+            <button class="btn btn-delete" onclick="deleteFont('${encodeURIComponent(f.name)}')">删除</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    // 复制链接
+    function copyLink(url) {
+      const fullUrl = window.location.origin + url;
+      navigator.clipboard.writeText(fullUrl).then(() => {
+        showToast('链接已复制');
+      });
+    }
+
+    // 删除字体
+    async function deleteFont(name) {
+      if (!confirm('确定删除这个字体吗？')) return;
+      await fetch(API_BASE + '/api/fonts/' + name, { method: 'DELETE' });
+      showToast('已删除');
+      loadFonts();
+    }
+
+    // 上传处理
+    document.getElementById('fileInput').addEventListener('change', async (e) => {
+      const files = e.target.files;
+      for (const file of files) {
+        const formData = new FormData();
+        formData.append('font', file);
+        await fetch(API_BASE + '/api/upload', {
+          method: 'POST',
+          body: formData
+        });
+      }
+      showToast('上传成功');
+      loadFonts();
+      e.target.value = '';
+    });
+
+    // 初始加载
+    loadFonts();
+  </script>
+</body>
+</html>
